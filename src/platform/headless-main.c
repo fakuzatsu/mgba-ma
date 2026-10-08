@@ -13,6 +13,9 @@
 #include <mgba/debugger/debugger.h>
 #ifdef M_CORE_GBA
 #include <mgba/internal/gba/gba.h>
+#if defined(USE_LIBMOBILE) && defined(MOBILE_TEST_RUNNER)
+#include <mgba/internal/gba/sio/mobile.h>
+#endif
 #endif
 #ifdef M_CORE_GB
 #include <mgba/internal/sm83/sm83.h>
@@ -34,6 +37,10 @@ static const char* const headlessUsage =
 	"Additional options:\n"
 	"  -S SWI           Run until specified SWI call before exiting\n"
 	"  -R REGISTER      General purpose register to return as exit code\n"
+#if defined(USE_LIBMOBILE) && defined(MOBILE_TEST_RUNNER)
+	"  --mobile-config FILE\n"
+	"                   Load a 512-byte Mobile Adapter configuration\n"
+#endif
 #ifdef ENABLE_SCRIPTING
 	"  --script FILE    Run a script on start. Can be passed multiple times\n"
 #endif
@@ -42,6 +49,9 @@ static const char* const headlessUsage =
 struct HeadlessOpts {
 	int exitSwiImmediate;
 	char* returnCodeRegister;
+#if defined(USE_LIBMOBILE) && defined(MOBILE_TEST_RUNNER)
+	char* mobileConfig;
+#endif
 	struct StringList scripts;
 };
 
@@ -57,6 +67,13 @@ static struct mCore* core;
 static bool _dispatchExiting = false;
 static int _exitCode = 0;
 static struct mStandardLogger _logger;
+
+#if defined(M_CORE_GBA) && defined(USE_LIBMOBILE) && defined(MOBILE_TEST_RUNNER)
+static struct GBASIOMobileAdapter _mobileAdapter;
+
+static void _headlessInitDefaultMobileConfig(uint8_t* config);
+static bool _headlessLoadMobileConfig(const char* path, uint8_t* config);
+#endif
 
 static void _headlessCallback(void* context);
 #ifdef M_CORE_GBA
@@ -89,6 +106,12 @@ int main(int argc, char * argv[]) {
 				.name = "script",
 				.arg = true,
 			},
+#if defined(USE_LIBMOBILE) && defined(MOBILE_TEST_RUNNER)
+			{
+				.name = "mobile-config",
+				.arg = true,
+			},
+#endif
 			{0}
 		},
 		.opts = &headlessOpts
@@ -137,6 +160,23 @@ int main(int argc, char * argv[]) {
 	case mPLATFORM_GBA:
 		((struct GBA*) core->board)->hardCrash = false;
 		_exitSwiImmediate = headlessOpts.exitSwiImmediate;
+
+#if defined(USE_LIBMOBILE) && defined(MOBILE_TEST_RUNNER)
+		GBASIOMobileAdapterCreate(&_mobileAdapter);
+		const char* mobileConfig = headlessOpts.mobileConfig;
+		if (!mobileConfig) {
+			mobileConfig = getenv("MGBA_MOBILE_CONFIG");
+		}
+		if (mobileConfig && mobileConfig[0]) {
+			if (!_headlessLoadMobileConfig(mobileConfig, _mobileAdapter.m.config)) {
+				mLOG(STATUS, ERROR, "Could not load Mobile Adapter configuration: %s", mobileConfig);
+				goto loadError;
+			}
+		} else {
+			_headlessInitDefaultMobileConfig(_mobileAdapter.m.config);
+		}
+		core->setPeripheral(core, mPERIPH_GBA_LINK_PORT, &_mobileAdapter.d);
+#endif
 
 		if (_exitSwiImmediate == 3) {
 			// Hook into SWI 3 (shutdown)
@@ -251,6 +291,11 @@ loadError:
 	if (_returnCodeRegister) {
 		free(_returnCodeRegister);
 	}
+#if defined(USE_LIBMOBILE) && defined(MOBILE_TEST_RUNNER)
+	if (headlessOpts.mobileConfig) {
+		free(headlessOpts.mobileConfig);
+	}
+#endif
 
 argsExit:
 	for (i = 0; i < StringListSize(&headlessOpts.scripts); ++i) {
@@ -365,6 +410,12 @@ static bool _parseLongHeadlessOpts(struct mSubParser* parser, const char* option
 		*StringListAppend(&opts->scripts) = strdup(arg);
 		return true;
 	}
+#if defined(USE_LIBMOBILE) && defined(MOBILE_TEST_RUNNER)
+	if (strcmp(option, "mobile-config") == 0) {
+		opts->mobileConfig = strdup(arg);
+		return true;
+	}
+#endif
 	return false;
 }
 
@@ -377,3 +428,39 @@ static bool _parseSwi(const char* swiStr, int* oSwi) {
 	*oSwi = swi;
 	return true;
 }
+
+#if defined(M_CORE_GBA) && defined(USE_LIBMOBILE) && defined(MOBILE_TEST_RUNNER)
+static void _headlessInitDefaultMobileConfig(uint8_t* config) {
+	memset(config, 0, MOBILE_CONFIG_SIZE);
+	config[0] = 'M';
+	config[1] = 'A';
+	config[2] = 0x81;
+	memcpy(&config[12], "test-user", sizeof("test-user"));
+	memcpy(&config[44], "test@example.com", sizeof("test@example.com"));
+	config[118] = 0xA9; // #9
+	config[119] = 0x67; // 67
+	config[120] = 0x7F; // 7 + terminator
+	memcpy(&config[126], "mGBA test", sizeof("mGBA test"));
+
+	uint16_t checksum = 0;
+	for (size_t i = 0; i < 0xBE; ++i) {
+		checksum += config[i];
+	}
+	config[0xBE] = checksum >> 8;
+	config[0xBF] = checksum;
+}
+
+static bool _headlessLoadMobileConfig(const char* path, uint8_t* config) {
+	struct VFile* vf = VFileOpen(path, O_RDONLY);
+	if (!vf) {
+		return false;
+	}
+	if (vf->size(vf) != MOBILE_CONFIG_SIZE) {
+		vf->close(vf);
+		return false;
+	}
+	ssize_t size = vf->read(vf, config, MOBILE_CONFIG_SIZE);
+	vf->close(vf);
+	return size == MOBILE_CONFIG_SIZE;
+}
+#endif

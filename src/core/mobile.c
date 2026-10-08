@@ -82,6 +82,14 @@ static int sock_connect(void* user, unsigned conn, const struct mobile_addr* add
 		connport = addr4->port;
 	}
 
+	const char* httpPortOverride = getenv("MGBA_MOBILE_HTTP_PORT");
+	if (connport == 80 && httpPortOverride && httpPortOverride[0]) {
+		unsigned long port = strtoul(httpPortOverride, NULL, 10);
+		if (port > 0 && port <= UINT16_MAX) {
+			connport = port;
+		}
+	}
+
 	// Two slightly uncommon assumptions are being made about SocketConnect:
 	// (these are true under any *strict* implementation of BSD sockets)
 	// - It works on a socket that has been obtained through SocketOpenTCP/UDP()
