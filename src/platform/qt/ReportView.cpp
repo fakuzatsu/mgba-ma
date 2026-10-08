@@ -537,6 +537,12 @@ void ReportView::addGLInfo(QStringList& report) {
 
 	report << QString("OpenGL type: %1").arg(QLatin1String(QOpenGLContext::openGLModuleType() == QOpenGLContext::LibGL ? "OpenGL" : "OpenGL|ES"));
 
+#ifdef USE_EPOXY
+	report << QString("Using libepoxy");
+#else
+	report << QString("Not using libepoxy");
+#endif
+
 	format.setVersion(1, 4);
 	report << QString("OpenGL supports legacy (1.x) contexts: %1").arg(yesNo[DisplayGL::supportsFormat(format)]);
 
@@ -548,7 +554,41 @@ void ReportView::addGLInfo(QStringList& report) {
 	format.setProfile(QSurfaceFormat::CoreProfile);
 	report << QString("OpenGL supports core contexts: %1").arg(yesNo[DisplayGL::supportsFormat(format)]);
 
+	format = QSurfaceFormat();
+	format.setRenderableType(QSurfaceFormat::OpenGL);
+	format.setVersion(3, 3);
+	report << QString("Supports OpenGL 3.3: %1").arg(yesNo[DisplayGL::supportsFormat(format)]);
+
+	format = QSurfaceFormat();
+	format.setRenderableType(QSurfaceFormat::OpenGLES);
+	format.setVersion(2, 0);
+	report << QString("Supports OpenGL|ES 2.0: %1").arg(yesNo[DisplayGL::supportsFormat(format)]);
+
+	format = QSurfaceFormat();
+	format.setRenderableType(QSurfaceFormat::OpenGLES);
+	format.setVersion(3, 1);
+	report << QString("Supports OpenGL|ES 3.1: %1").arg(yesNo[DisplayGL::supportsFormat(format)]);
+
+	format = QSurfaceFormat();
+	if (DisplayGL::highestCompatible(format)) {
+		QString version;
+		switch (format.renderableType()) {
+		case QSurfaceFormat::OpenGL:
+			version = "OpenGL ";
+			break;
+		case QSurfaceFormat::OpenGLES:
+			version = "OpenGL|ES ";
+			break;
+		default:
+			break;
+		}
+		report << QString("Highest compatible OpenGL version: %1%2.%3").arg(version).arg(format.majorVersion()).arg(format.minorVersion());
+	} else {
+		report << QString("Could not detect highest compatible OpenGL version");
+	}
+
 	QOpenGLContext context;
+	context.setFormat(format);
 	if (context.create()) {
 		QOffscreenSurface surface;
 		surface.create();
@@ -655,9 +695,7 @@ void ReportView::addScreenInfo(QStringList& report, const QScreen* screen) {
 	report << QString("Size: %1x%2").arg(geometry.width()).arg(geometry.height());
 	report << QString("Location: %1, %2").arg(geometry.x()).arg(geometry.y());
 	report << QString("Refresh rate: %1 Hz").arg(screen->refreshRate());
-#if (QT_VERSION >= QT_VERSION_CHECK(5, 5, 0))
 	report << QString("Pixel ratio: %1").arg(screen->devicePixelRatio());
-#endif
 	report << QString("Logical DPI: %1x%2").arg(screen->logicalDotsPerInchX()).arg(screen->logicalDotsPerInchY());
 	report << QString("Physical DPI: %1x%2").arg(screen->physicalDotsPerInchX()).arg(screen->physicalDotsPerInchY());
 }

@@ -1,36 +1,31 @@
-/* Copyright (c) 2013-2014 Jeffrey Pfau
+/* Copyright (c) 2013-2026 Jeffrey Pfau
  *
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 #pragma once
 
-#include "AudioProcessor.h"
-
-#if (QT_VERSION < QT_VERSION_CHECK(6, 0, 0))
-#include <QAudioOutput>
-#else
-#include <QAudioSink>
+#include <QElapsedTimer>
 #include <QTimer>
-#endif
 
-class QAudioOutput;
+#include "AudioProcessor.h"
 
 namespace QGBA {
 
-class AudioDevice;
-
-class AudioProcessorQt : public AudioProcessor {
+class AudioProcessorDummy : public AudioProcessor {
 Q_OBJECT
 
+private:
+	const int POLL_INTERVAL = 4;
+
 public:
-	AudioProcessorQt(QObject* parent = nullptr);
+	AudioProcessorDummy(QObject* parent = nullptr);
 
 	virtual unsigned sampleRate() const override;
 
 public slots:
-	virtual void setInput(std::shared_ptr<CoreController> input) override;
 	virtual void stop() override;
+
 	virtual bool start() override;
 	virtual void pause() override;
 
@@ -39,15 +34,14 @@ public slots:
 
 	virtual void requestSampleRate(unsigned) override;
 
+private slots:
+	void refresh();
+
 private:
-#if (QT_VERSION >= QT_VERSION_CHECK(6, 0, 0))
-	std::unique_ptr<QAudioSink> m_audioOutput;
-#else
-	std::unique_ptr<QAudioOutput> m_audioOutput;
-#endif
-	std::unique_ptr<AudioDevice> m_device;
-	size_t m_samples = 1024;
 	unsigned m_sampleRate = 44100;
+	QElapsedTimer m_interval;
+	QTimer m_timer;
+	qint64 m_lastRefresh = 0;
 };
 
 }
