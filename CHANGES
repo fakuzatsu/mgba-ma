@@ -19,6 +19,7 @@ Features:
  - Initial support for bootleg GBA multicarts
  - Debugger: Add range watchpoints
  - Debugger: Add enabling/disabling for breakpoints and watchpoints
+ - Debugger: Show SPSR register and PSR mode fields
  - "Headless" frontend for running tests, automation, etc.
 Emulation fixes:
  - ARM: Add framework for coprocessor support
@@ -47,6 +48,7 @@ Emulation fixes:
  - GBA Video: Properly clear VRAM on reset (fixes mgba.io/i/3690)
 Other fixes:
  - 3DS: Don't detach autosave thread (fixes mgba.io/i/3561)
+ - CMake: Fix minizip unztell64 detection outside default library paths
  - Core: Fix inconsistencies with setting game-specific overrides (fixes mgba.io/i/2963)
  - Core: Don't leave initial empty state in rewind queue
  - Debugger: Fix writing to specific segment in command-line debugger
@@ -67,6 +69,8 @@ Other fixes:
  - Qt: Fix updating AppImage on Linux (fixes mgba.io/i/3742)
  - Qt: Fix fast forward toggling showing as still on after loading new game
  - Qt: Fix audio channel/video layer menus not being cleared on unload
+ - Qt: Add fallback audio processor if init fails (fixes mgba.io/i/280)
+ - Scripting: Unset old callbacks when detaching emulator core
  - SDL: Use SDL_PumpEvents to ensure hotplug events are caught (fixes mgba.io/i/3406)
  - SDL: Fix controllers getting duplicated
  - SM83: Decode I/O-relative loads as ldh instead of ld (fixes mgba.io/i/3744)
@@ -122,6 +126,7 @@ Misc:
  - Qt: Put fullscreen information in report view
  - Qt: Add "clear console" menu item for the scripting view
  - Qt: Replace save warning with a copy dialog (closes mgba.io/i/3637)
+ - Qt: Add "continue" button to debugger console
  - Res: Port hq2x and OmniScale shaders from SameBoy
  - Res: Port NSO-gba-colors shader (closes mgba.io/i/2834)
  - Res: Update gba-colors shader (closes mgba.io/i/2976)
@@ -129,6 +134,7 @@ Misc:
  - Res: Port MMPX shader
  - Scripting: Add `callbacks:oneshot` for single-call callbacks
  - SDL: Differentiate controllers based on serial number (fixes mgba.io/i/880)
+ - VFS: Fix loading 7-Zip files with Unicode filenames on Windows (fixes mbga.io/i/3823)
 
 0.10.5: (2025-03-08)
 Other fixes:
