@@ -1,0 +1,176 @@
+name: Release builds
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  macos:
+    name: macOS (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Install build dependencies
+        run: brew install cmake ninja ffmpeg libzip qt@5 sdl2 libedit lua pkg-config
+
+      - name: Configure
+        run: >-
+          cmake -S . -B build-release -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DDISTBUILD=ON
+          -DFORCE_QT_VERSION=5
+          -DUSE_LIBMOBILE=ON
+          -DCMAKE_PREFIX_PATH="$(brew --prefix qt@5)"
+          -DBUILD_TEST=OFF
+          -DBUILD_SUITE=OFF
+
+      - name: Build
+        run: cmake --build build-release --parallel 4
+
+      - name: Package DMG
+        run: |
+          export MACDEPLOYQT="$(brew --prefix qt@5)/bin/macdeployqt"
+          tools/package-macos.sh \
+            build-release \
+            release-assets \
+            "mGBA-MA-${GITHUB_REF_NAME}-macos-${{ matrix.arch }}"
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-macos-${{ matrix.arch }}
+          path: release-assets/*.dmg
+          if-no-files-found: error
+
+  windows:
+    name: Windows (x86_64)
+    runs-on: windows-latest
+    steps:
+      - name: Preserve Unix line endings
+        shell: pwsh
+        run: git config --global core.autocrlf input
+
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            dos2unix
+            git
+            unzip
+          pacboy: >-
+            toolchain:p
+            cmake:p
+            ninja:p
+            ffmpeg:p
+            freetype:p
+            json-c:p
+            libelf:p
+            libepoxy:p
+            libpng:p
+            libzip:p
+            lua:p
+            ntldd:p
+            pkgconf:p
+            qt5-multimedia:p
+            qt5-tools:p
+            SDL2:p
+
+      - name: Configure
+        shell: msys2 {0}
+        run: |
+          cmake -S . -B build-release -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DDISTBUILD=ON \
+            -DFORCE_QT_VERSION=5 \
+            -DUSE_LIBMOBILE=ON \
+            -DBUILD_TEST=OFF \
+            -DBUILD_SUITE=OFF
+
+      - name: Build
+        shell: msys2 {0}
+        run: cmake --build build-release --parallel 4
+
+      - name: Package portable ZIP
+        shell: msys2 {0}
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          cpack \
+            --config build-release/CPackConfig.cmake \
+            -G ZIP \
+            -B release-assets \
+            -D CPACK_COMPONENTS_GROUPING=ALL_COMPONENTS_IN_ONE \
+            -D "CPACK_PACKAGE_FILE_NAME=mGBA-MA-${GITHUB_REF_NAME}-windows-x64"
+
+          asset="release-assets/mGBA-MA-${GITHUB_REF_NAME}-windows-x64.zip"
+          test -f "$asset"
+          unzip -Z1 "$asset" > release-assets/zip-contents.txt
+          grep -Eiq '(^|/)mGBA\.exe$' release-assets/zip-contents.txt
+          grep -Eiq '(^|/)libmgba\.dll$' release-assets/zip-contents.txt
+          grep -Eiq '(^|/)portable\.ini$' release-assets/zip-contents.txt
+          grep -Eiq '(^|/)platforms/qwindows\.dll$' release-assets/zip-contents.txt
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-windows-x64
+          path: release-assets/*.zip
+          if-no-files-found: error
+
+  publish:
+    name: Publish GitHub release
+    if: startsWith(github.ref, 'refs/tags/')
+    needs:
+      - macos
+      - windows
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v7
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: release-assets
+
+      - name: Create checksums
+        run: |
+          cd release-assets
+          sha256sum *.dmg *.zip > SHA256SUMS
+
+      - name: Create or update release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          tag=${GITHUB_REF_NAME}
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            gh release create "$tag" --title "$tag" --generate-notes
+          fi
+          gh release upload "$tag" release-assets/* --clobber
